@@ -194,6 +194,7 @@ import {
 } from "../browser/openFileInPreview";
 import { resolveLinkTarget } from "../browser/browserLinkTarget";
 import { PullRequestLinkPreview } from "./pullRequest/PullRequestLinkPreview";
+import { MermaidDiagram } from "./MermaidDiagram";
 
 interface ChatMarkdownProps {
   text: string;
@@ -3185,7 +3186,7 @@ const CHAT_MARKDOWN_COMPONENTS = {
 
     const language = extractFenceLanguage(codeBlock.className);
     const fenceTitle = extractFenceTitle(extractPreCodeMeta(node));
-    return (
+    const codeFallback = (
       <MarkdownCodeBlock
         code={codeBlock.code}
         language={language}
@@ -3215,6 +3216,17 @@ const CHAT_MARKDOWN_COMPONENTS = {
         </RenderErrorBoundary>
       </MarkdownCodeBlock>
     );
+    if (!isStreaming && language.toLowerCase() === "mermaid") {
+      return (
+        <MermaidDiagram
+          code={codeBlock.code}
+          theme={resolvedTheme}
+          fenceTitle={fenceTitle}
+          fallback={codeFallback}
+        />
+      );
+    }
+    return codeFallback;
   },
 } satisfies Components;
 
