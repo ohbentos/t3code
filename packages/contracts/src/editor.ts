@@ -11,9 +11,9 @@ type EditorDefinition = {
   readonly baseArgs?: readonly string[];
   readonly launchStyle: EditorLaunchStyle;
   /**
-   * URL scheme for editors that support VS Code's remote deep links
-   * (`<scheme>://vscode-remote/ssh-remote+<host><path>`). Only set for VS Code
-   * and forks that ship the Remote-SSH machinery, plus Zed, which uses its own
+   * URL scheme for integrations that consume remote deep links. VS Code and
+   * its forks use `<scheme>://vscode-remote/ssh-remote+<host><path>`; other
+   * integrations may provide a URL handler, such as Zed's
    * `zed://ssh/<host><path>` shape.
    */
   readonly remoteScheme?: string;
@@ -21,8 +21,20 @@ type EditorDefinition = {
 
 // The first installed editor is the default until the user picks another one.
 export const EDITORS = [
-  { id: "ghostty", label: "Ghostty", commands: ["open-in-ghostty"], launchStyle: "direct-path" },
-  { id: "neovim", label: "Neovim", commands: ["open-in-neovim"], launchStyle: "direct-path" },
+  {
+    id: "ghostty",
+    label: "Ghostty",
+    commands: ["open-in-ghostty"],
+    launchStyle: "direct-path",
+    remoteScheme: "t3-ghostty",
+  },
+  {
+    id: "neovim",
+    label: "Neovim",
+    commands: ["open-in-neovim"],
+    launchStyle: "direct-path",
+    remoteScheme: "t3-neovim",
+  },
   {
     id: "cursor",
     label: "Cursor",
