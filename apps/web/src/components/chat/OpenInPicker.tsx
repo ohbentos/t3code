@@ -24,8 +24,10 @@ import {
   CursorIcon,
   FileExplorerIcon,
   FinderIcon,
+  GhosttyIcon,
   Icon,
   KiroIcon,
+  NeovimIcon,
   TraeIcon,
   VisualStudioCode,
   VisualStudioCodeInsiders,
@@ -62,6 +64,16 @@ export const resolveOpenInOptions = (
   availableEditors: ReadonlyArray<EditorId>,
 ) => {
   const baseOptions: ReadonlyArray<Omit<OpenInOption, "label">> = [
+    {
+      Icon: GhosttyIcon,
+      value: "ghostty",
+      kind: "brand",
+    },
+    {
+      Icon: NeovimIcon,
+      value: "neovim",
+      kind: "brand",
+    },
     {
       Icon: CursorIcon,
       value: "cursor",
