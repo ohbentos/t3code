@@ -22,8 +22,10 @@ import { Menu, MenuItem, MenuPopup, MenuShortcut, MenuTrigger } from "../ui/menu
 import {
   AntigravityIcon,
   CursorIcon,
+  GhosttyIcon,
   Icon,
   KiroIcon,
+  NeovimIcon,
   TraeIcon,
   VisualStudioCode,
   VisualStudioCodeInsiders,
@@ -57,6 +59,16 @@ type OpenInOption = {
 
 const resolveOptions = (platform: string, availableEditors: ReadonlyArray<EditorId>) => {
   const baseOptions: ReadonlyArray<Omit<OpenInOption, "label">> = [
+    {
+      Icon: GhosttyIcon,
+      value: "ghostty",
+      kind: "brand",
+    },
+    {
+      Icon: NeovimIcon,
+      value: "neovim",
+      kind: "brand",
+    },
     {
       Icon: CursorIcon,
       value: "cursor",

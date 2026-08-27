@@ -18,7 +18,10 @@ type EditorDefinition = {
   readonly remoteScheme?: string;
 };
 
+// The first installed editor is the default until the user picks another one.
 export const EDITORS = [
+  { id: "ghostty", label: "Ghostty", commands: ["open-in-ghostty"], launchStyle: "direct-path" },
+  { id: "neovim", label: "Neovim", commands: ["open-in-neovim"], launchStyle: "direct-path" },
   {
     id: "cursor",
     label: "Cursor",
