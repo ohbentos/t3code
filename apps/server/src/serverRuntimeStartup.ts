@@ -500,12 +500,12 @@ export const reconcileProviderSessions = Effect.gen(function* () {
     (yield* providerService.listSessions()).map((session) => session.threadId),
   );
   const { threads } = yield* query.getCommandReadModel();
-  // Provider startup can report ready before the continuation is submitted.
-  // Find those markers in one read rather than querying every idle thread.
-  const preparedThreadIds = new Set(
+  // A provider can finish after an update marks its turn but before the process exits.
+  // Find those completed sessions in one read so they are not mistaken for idle orphans.
+  const completedContinuationThreadIds = new Set(
     (yield* directory.listBindings().pipe(
       Effect.catch((cause) =>
-        Effect.logWarning("failed to read prepared provider continuations", { cause }).pipe(
+        Effect.logWarning("failed to read provider continuation bindings", { cause }).pipe(
           Effect.andThen(
             Effect.forEach(
               threads.filter(
@@ -523,19 +523,20 @@ export const reconcileProviderSessions = Effect.gen(function* () {
     ))
       .filter(
         (binding) =>
+          binding.status === "stopped" &&
           readServerUpdateContinuationTurnId(binding.runtimePayload) !== null &&
           readRuntimePayload(binding.runtimePayload).activeTurnId === null &&
-          readRuntimePayload(binding.runtimePayload).continueAfterServerUpdatePrepared === true,
+          readRuntimePayload(binding.runtimePayload).continueAfterServerUpdatePrepared !== true,
       )
       .map((binding) => binding.threadId),
   );
   const orphanedThreads = threads.filter(
     (thread) =>
       thread.session !== null &&
-      (thread.session.status === "starting" ||
-        thread.session.status === "running" ||
-        thread.session.activeTurnId !== null ||
-        (thread.session.status === "ready" && preparedThreadIds.has(thread.id))) &&
+      (thread.session.activeTurnId !== null ||
+        (thread.session.status !== "stopped" &&
+          thread.session.status !== "error" &&
+          (thread.session.status !== "ready" || !completedContinuationThreadIds.has(thread.id)))) &&
       !liveThreadIds.has(thread.id),
   );
 
@@ -582,7 +583,12 @@ export const reconcileProviderSessions = Effect.gen(function* () {
       Option.isSome(binding) &&
       binding.value.status === "running" &&
       binding.value.resumeCursor != null;
-    const settleAsError = (lastError: string) =>
+    const wasActive =
+      session.status === "starting" ||
+      session.status === "running" ||
+      session.activeTurnId !== null ||
+      preparedWhileReady;
+    const settleOrphan = (lastError: string) =>
       Effect.gen(function* () {
         yield* Effect.gen(function* () {
           if (Option.isSome(binding)) {
@@ -620,9 +626,9 @@ export const reconcileProviderSessions = Effect.gen(function* () {
             threadId: thread.id,
             session: {
               ...session,
-              status: "error",
+              status: wasActive ? "error" : "stopped",
               activeTurnId: null,
-              lastError,
+              lastError: wasActive ? lastError : session.lastError,
               updatedAt: reconciledAt,
             },
             createdAt: reconciledAt,
@@ -683,7 +689,7 @@ export const reconcileProviderSessions = Effect.gen(function* () {
           threadId: thread.id,
           cause: prepared.cause,
         });
-        yield* settleAsError(ORPHANED_PROVIDER_SESSION_ERROR);
+        yield* settleOrphan(ORPHANED_PROVIDER_SESSION_ERROR);
         continue;
       }
 
@@ -724,7 +730,7 @@ export const reconcileProviderSessions = Effect.gen(function* () {
             threadId: thread.id,
             cause: continuationExit.cause,
           });
-          yield* settleAsError(
+          yield* settleOrphan(
             "Could not continue this thread after the server restart. Send a new message to continue.",
           ).pipe(Effect.ignoreCause);
         }),
@@ -732,7 +738,7 @@ export const reconcileProviderSessions = Effect.gen(function* () {
       continue;
     }
 
-    yield* settleAsError(ORPHANED_PROVIDER_SESSION_ERROR);
+    yield* settleOrphan(ORPHANED_PROVIDER_SESSION_ERROR);
   }
 }).pipe(
   Effect.catchCause((cause) =>

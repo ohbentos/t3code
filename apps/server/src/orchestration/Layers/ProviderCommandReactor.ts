@@ -73,6 +73,7 @@ type ProviderIntentEvent = Extract<
       | "thread.turn-interrupt-requested"
       | "thread.approval-response-requested"
       | "thread.user-input-response-requested"
+      | "thread.session-start-requested"
       | "thread.session-stop-requested"
       | "thread.settled";
   }
@@ -103,6 +104,10 @@ function mapProviderSessionStatusToOrchestrationStatus(
     default:
       return "ready";
   }
+}
+
+function isLiveProviderSession(session: ProviderSession): boolean {
+  return session.status !== "error" && session.status !== "closed";
 }
 
 const turnStartKeyForEvent = (event: ProviderIntentEvent): string =>
@@ -381,6 +386,7 @@ const make = Effect.gen(function* () {
       | "provider.turn.interrupt.failed"
       | "provider.approval.respond.failed"
       | "provider.user-input.respond.failed"
+      | "provider.session.start.failed"
       | "provider.session.stop.failed";
     readonly summary: string;
     readonly detail: string;
@@ -510,7 +516,7 @@ const make = Effect.gen(function* () {
       ),
     );
 
-  const setThreadSessionErrorOnTurnStartFailure = Effect.fnUntraced(function* (input: {
+  const setThreadSessionErrorOnStartFailure = Effect.fnUntraced(function* (input: {
     readonly threadId: ThreadId;
     readonly detail: string;
     readonly createdAt: string;
@@ -683,7 +689,13 @@ const make = Effect.gen(function* () {
     const resolveActiveSession = (threadId: ThreadId) =>
       providerService
         .listSessions()
-        .pipe(Effect.map((sessions) => sessions.find((session) => session.threadId === threadId)));
+        .pipe(
+          Effect.map((sessions) =>
+            sessions.find(
+              (session) => session.threadId === threadId && isLiveProviderSession(session),
+            ),
+          ),
+        );
 
     const activeSession = yield* resolveActiveSession(threadId);
     const activeThreadSession =
@@ -1328,7 +1340,7 @@ const make = Effect.gen(function* () {
         return Effect.void;
       }
       const detail = formatFailureDetail(cause);
-      return setThreadSessionErrorOnTurnStartFailure({
+      return setThreadSessionErrorOnStartFailure({
         threadId: event.payload.threadId,
         detail,
         createdAt: event.payload.createdAt,
@@ -1440,7 +1452,7 @@ const make = Effect.gen(function* () {
       }
       const detail = formatFailureDetail(cause);
       if (!compactionSessionEnsured) {
-        return setThreadSessionErrorOnTurnStartFailure({
+        return setThreadSessionErrorOnStartFailure({
           threadId: event.payload.threadId,
           detail,
           createdAt: event.payload.createdAt,
@@ -1766,6 +1778,71 @@ const make = Effect.gen(function* () {
     },
   );
 
+  const processSessionStartRequested = Effect.fn("processSessionStartRequested")(function* (
+    event: Extract<ProviderIntentEvent, { type: "thread.session-start-requested" }>,
+  ) {
+    const thread = yield* resolveThreadShell(event.payload.threadId);
+    if (!thread) {
+      return;
+    }
+    const hasLiveSession = yield* providerService
+      .listSessions()
+      .pipe(
+        Effect.map((sessions) =>
+          sessions.some(
+            (session) => session.threadId === thread.id && isLiveProviderSession(session),
+          ),
+        ),
+      );
+    if (hasLiveSession) {
+      return;
+    }
+
+    const now = event.payload.createdAt;
+    yield* setThreadSession({
+      threadId: thread.id,
+      session: {
+        ...(thread.session ?? {
+          threadId: thread.id,
+          providerName: null,
+          providerInstanceId: thread.modelSelection.instanceId,
+          runtimeMode: thread.runtimeMode,
+        }),
+        status: "starting",
+        activeTurnId: null,
+        lastError: null,
+        updatedAt: now,
+      },
+      createdAt: now,
+    });
+    yield* ensureThreadWorktree(thread);
+    yield* ensureSessionForThread(thread.id, now).pipe(
+      Effect.catchCause((cause) => {
+        if (Cause.hasInterruptsOnly(cause)) {
+          return Effect.failCause(cause);
+        }
+        const detail = formatFailureDetail(cause);
+        return setThreadSessionErrorOnStartFailure({
+          threadId: thread.id,
+          detail,
+          createdAt: now,
+        }).pipe(
+          Effect.flatMap(() =>
+            appendProviderFailureActivity({
+              threadId: thread.id,
+              kind: "provider.session.start.failed",
+              summary: "Provider session start failed",
+              detail,
+              turnId: null,
+              createdAt: now,
+            }),
+          ),
+          Effect.asVoid,
+        );
+      }),
+    );
+  });
+
   const processSessionStopRequested = Effect.fn("processSessionStopRequested")(function* (
     event: Extract<ProviderIntentEvent, { type: "thread.session-stop-requested" }>,
   ) {
@@ -1874,6 +1951,9 @@ const make = Effect.gen(function* () {
       case "thread.user-input-response-requested":
         yield* processUserInputResponseRequested(event);
         return;
+      case "thread.session-start-requested":
+        yield* processSessionStartRequested(event);
+        return;
       case "thread.session-stop-requested":
         yield* processSessionStopRequested(event);
         return;
@@ -1941,6 +2021,7 @@ const make = Effect.gen(function* () {
         event.type === "thread.turn-interrupt-requested" ||
         event.type === "thread.approval-response-requested" ||
         event.type === "thread.user-input-response-requested" ||
+        event.type === "thread.session-start-requested" ||
         event.type === "thread.session-stop-requested" ||
         event.type === "thread.settled"
       ) {
