@@ -11,7 +11,7 @@ import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import { ChevronDownIcon } from "lucide-react";
+import { ChevronDownIcon, RefreshCwIcon } from "lucide-react";
 import {
   memo,
   useCallback,
@@ -25,6 +25,7 @@ import {
 import GitActionsControl from "../GitActionsControl";
 import { isTrailingDoubleClick } from "../Sidebar.logic";
 import { type DraftId } from "~/composerDraftStore";
+import { Button } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { toastManager } from "../ui/toast";
 import ProjectScriptsControl, {
@@ -34,6 +35,7 @@ import ProjectScriptsControl, {
 import { OpenInPicker } from "./OpenInPicker";
 import { useRemoteOpenState, type RemoteOpenMode } from "../../remoteOpen";
 import { usePrimaryEnvironmentId } from "../../state/environments";
+import { readEnvironmentSupportsSessionStart, useThreadShell } from "../../state/entities";
 import { useT3ProjectFileScripts } from "~/hooks/useT3ProjectFileScripts";
 import { useThreadActionMenu } from "~/hooks/useThreadActionMenu";
 import { readLocalApi } from "~/localApi";
@@ -176,6 +178,29 @@ export const ChatHeader = memo(function ChatHeader({
   const updateThreadMetadata = useAtomCommand(threadEnvironment.updateMetadata, {
     reportFailure: false,
   });
+  const startThreadSession = useAtomCommand(threadEnvironment.startSession, {
+    reportFailure: false,
+  });
+  const supportsSessionStart = readEnvironmentSupportsSessionStart(activeThreadEnvironmentId);
+  const threadShell = useThreadShell(isServerThread ? activeThreadRef : null);
+  const sessionStatus = threadShell?.session?.status;
+  const canReconnectSession = sessionStatus === "stopped" || sessionStatus === "error";
+  const handleReconnectSession = useCallback(async () => {
+    const result = await startThreadSession({
+      environmentId: activeThreadEnvironmentId,
+      input: { threadId: activeThreadId },
+    });
+    if (result._tag === "Failure") {
+      if (!isAtomCommandInterrupted(result)) {
+        const error = squashAtomCommandFailure(result);
+        toastManager.add({
+          type: "error",
+          title: "Failed to reconnect provider session",
+          description: error instanceof Error ? error.message : "An error occurred.",
+        });
+      }
+    }
+  }, [activeThreadEnvironmentId, activeThreadId, startThreadSession]);
   // Inline rename, keyed by thread: navigating away drops an in-progress
   // rename instead of committing stale text. Cleared on thread change (not
   // just hidden) so returning to the thread doesn't revive the old draft.
@@ -409,6 +434,27 @@ export const ChatHeader = memo(function ChatHeader({
           "[[data-panel-animations=true]_&]:motion-safe:transition-[padding-right] [[data-panel-animations=true]_&]:motion-safe:[transition-duration:var(--panel-animation-duration)] [[data-panel-animations=true]_&]:motion-safe:ease-out",
         )}
       >
+        {isServerThread && supportsSessionStart && canReconnectSession ? (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  size="xs"
+                  variant="outline"
+                  aria-label="Reconnect provider session"
+                  data-toolbar-control=""
+                  onClick={() => void handleReconnectSession()}
+                />
+              }
+            >
+              <RefreshCwIcon className="size-3.5" />
+              <span className="sr-only @3xl/header-actions:not-sr-only @3xl/header-actions:ml-0.5">
+                Reconnect
+              </span>
+            </TooltipTrigger>
+            <TooltipPopup side="top">Reconnect provider session</TooltipPopup>
+          </Tooltip>
+        ) : null}
         {activeProjectScripts && (
           <ProjectScriptsControl
             scripts={activeProjectScripts}
