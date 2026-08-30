@@ -57,6 +57,12 @@ Claude Code holds the turn until that window reopens, so it can keep showing as
 working. Wait for the reset, or stop the turn and continue later. The warning's
 timestamp shows when the displayed wait started.
 
+## Reconnect an idle session
+
+On web and desktop, select **Reconnect** in the chat toolbar to resume an idle
+provider session without sending a message. Sending your next message still
+reconnects automatically.
+
 ## Skills
 
 Claude skills come from the config directory's `skills` folder and the project's

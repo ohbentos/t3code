@@ -477,7 +477,7 @@ it.effect("retries continuation preparation before settling a persistent failure
   );
 });
 
-it.effect("reconciles multiple active and archived orphans but skips live sessions", () => {
+it.effect("reconciles non-terminal orphans but skips live sessions", () => {
   const starting = makeThread("thread-starting", "starting");
   const running = makeThread("thread-running", "running", TurnId.make("turn-running"));
   const staleActiveTurn = makeThread(
@@ -531,7 +531,7 @@ it.effect("reconciles multiple active and archived orphans but skips live sessio
   }).pipe(
     Effect.tap(() =>
       Effect.sync(() => {
-        const orphanIds = [starting.id, running.id, staleActiveTurn.id, archived.id];
+        const orphanIds = [starting.id, running.id, staleActiveTurn.id, archived.id, settled.id];
         assert.deepStrictEqual(bindingReads, orphanIds);
         assert.deepStrictEqual(
           dispatched.map((command) => command.type === "thread.session.set" && command.threadId),
@@ -546,7 +546,10 @@ it.effect("reconciles multiple active and archived orphans but skips live sessio
                 }
               : null,
           ),
-          orphanIds.map(() => ({ status: "error" as const, activeTurnId: null })),
+          [
+            ...orphanIds.slice(0, -1).map(() => ({ status: "error" as const, activeTurnId: null })),
+            { status: "stopped" as const, activeTurnId: null },
+          ],
         );
         assert.equal(upserts.length, orphanIds.length);
         for (const binding of upserts) {
