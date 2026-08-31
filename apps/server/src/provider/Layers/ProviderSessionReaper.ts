@@ -14,7 +14,7 @@ import {
 import { forkParked } from "../../serverActivation.ts";
 import { ProviderService } from "../Services/ProviderService.ts";
 
-const DEFAULT_INACTIVITY_THRESHOLD_MS = 30 * 60 * 1000;
+const DEFAULT_INACTIVITY_THRESHOLD_MS = 12 * 60 * 60 * 1000;
 const DEFAULT_SWEEP_INTERVAL_MS = 5 * 60 * 1000;
 
 export interface ProviderSessionReaperLiveOptions {
