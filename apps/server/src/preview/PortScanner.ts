@@ -70,6 +70,14 @@ export const COMMON_DEV_PORTS: ReadonlyArray<number> = Object.freeze([
   3000, 3001, 3333, 4173, 4200, 4321, 5000, 5173, 5174, 5175, 5500, 8000, 8080, 8081, 8888, 9000,
 ]);
 
+/**
+ * Discovery is opt-in: enumerating listeners and issuing loopback HTTP probes
+ * is a poor default for a host that never opens the preview panel. Unless this
+ * is set, every scan resolves empty and the preview panel's local suggestions
+ * and the sidebar port badges stay blank. Read at layer construction.
+ */
+const portDiscoveryEnabled = () => process.env.T3CODE_ENABLE_PORT_DISCOVERY === "1";
+
 const POLL_INTERVAL = Duration.seconds(3);
 const LSOF_TIMEOUT_MS = 5_000;
 const WINDOWS_LISTENER_TIMEOUT_MS = 5_000;
@@ -290,6 +298,7 @@ const serversEqual = (
 };
 
 export const make = Effect.gen(function* PortDiscoveryMake() {
+  const discoveryEnabled = portDiscoveryEnabled();
   const net = yield* Net.NetService;
   const processRunner = yield* ProcessRunner.ProcessRunner;
   const hostPlatform = yield* HostProcessPlatform;
@@ -537,7 +546,9 @@ export const make = Effect.gen(function* PortDiscoveryMake() {
 
   const scanSnapshot = Effect.fn("PortDiscovery.scanSnapshot")(
     (configuredUrls: ReadonlyArray<string>) =>
-      scanSemaphore.withPermits(1)(scanUnlocked(configuredUrls)),
+      discoveryEnabled
+        ? scanSemaphore.withPermits(1)(scanUnlocked(configuredUrls))
+        : Effect.succeed({ discovered: [], configured: new Map() } satisfies WebProbeSnapshot),
   );
 
   const scanOnce: PortDiscovery["Service"]["scan"] = (configuredUrls = []) => {
