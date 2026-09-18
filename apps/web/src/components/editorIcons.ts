@@ -7,8 +7,10 @@ import {
   CursorIcon,
   FileExplorerIcon,
   FinderIcon,
+  GhosttyIcon,
   type Icon,
   KiroIcon,
+  NeovimIcon,
   TraeIcon,
   VisualStudioCode,
   VisualStudioCodeInsiders,
@@ -39,6 +41,16 @@ export interface EditorIconOption {
 /** Editor logos in picker order. */
 export function editorIconOptions(platform: string): ReadonlyArray<EditorIconOption> {
   return [
+    {
+      Icon: GhosttyIcon,
+      value: "ghostty",
+      kind: "brand",
+    },
+    {
+      Icon: NeovimIcon,
+      value: "neovim",
+      kind: "brand",
+    },
     {
       Icon: CursorIcon,
       value: "cursor",
