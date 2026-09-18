@@ -22,6 +22,7 @@ import { useEffect, useMemo, useState } from "react";
 import { isDesktopLocalConnectionTarget } from "~/connection/desktopLocal";
 import { isLoopbackHostname } from "~/environments/primary/target";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
+import { isMacPlatform } from "~/lib/utils";
 import { useEnvironmentPresentation } from "~/state/presentation";
 
 export interface RemoteOpenHost {
@@ -123,16 +124,23 @@ export function useRemoteOpenState(environmentId: EnvironmentId | null): RemoteO
 }
 
 /**
- * Editors offered in remote-link mode. The desktop app probes the machine the
- * renderer runs on; a browser cannot, so it offers VS Code only.
+ * Editors offered in remote-link mode when this client cannot probe local
+ * commands. macOS browsers can hand Ghostty links to the Nix-installed URL
+ * handler; other browsers retain the portable VS Code fallback.
  */
-const REMOTE_FALLBACK_EDITORS: ReadonlyArray<EditorId> = ["vscode"];
+const remoteFallbackEditors = (): ReadonlyArray<EditorId> =>
+  typeof window !== "undefined" &&
+  typeof navigator !== "undefined" &&
+  window.desktopBridge === undefined &&
+  isMacPlatform(navigator.platform)
+    ? ["ghostty", "neovim", "vscode"]
+    : ["vscode"];
 
 let cachedProbedEditors: ReadonlyArray<EditorId> | null = null;
 
 export function useRemoteCapableEditors(): ReadonlyArray<EditorId> {
   const [editors, setEditors] = useState<ReadonlyArray<EditorId>>(
-    () => cachedProbedEditors ?? REMOTE_FALLBACK_EDITORS,
+    () => cachedProbedEditors ?? remoteFallbackEditors(),
   );
 
   useEffect(() => {
@@ -141,20 +149,20 @@ export function useRemoteCapableEditors(): ReadonlyArray<EditorId> {
     }
     const probe = window.desktopBridge?.probeRemoteEditors;
     if (probe === undefined) {
-      cachedProbedEditors = REMOTE_FALLBACK_EDITORS;
+      cachedProbedEditors = remoteFallbackEditors();
       return;
     }
     let cancelled = false;
     probe().then(
       (ids) => {
         const remoteCapable = ids.filter((id) => REMOTE_CAPABLE_EDITOR_IDS.includes(id));
-        cachedProbedEditors = remoteCapable.length > 0 ? remoteCapable : REMOTE_FALLBACK_EDITORS;
+        cachedProbedEditors = remoteCapable.length > 0 ? remoteCapable : remoteFallbackEditors();
         if (!cancelled) {
           setEditors(cachedProbedEditors);
         }
       },
       () => {
-        cachedProbedEditors = REMOTE_FALLBACK_EDITORS;
+        cachedProbedEditors = remoteFallbackEditors();
       },
     );
     return () => {
