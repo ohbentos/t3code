@@ -204,18 +204,22 @@ describe("remoteFallbackEditors", () => {
       maxTouchPoints: 5,
     },
   ])("offers no desktop editor for remote links on an $device", ({ device: _, ...identity }) => {
-    expect(remoteFallbackEditors(identity)).toEqual([]);
+    expect(remoteFallbackEditors(identity, false)).toEqual([]);
   });
 
-  it("keeps the VS Code fallback for remote links on a Mac", () => {
-    expect(
-      remoteFallbackEditors({
-        userAgent:
-          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
-        platform: "MacIntel",
-        maxTouchPoints: 0,
-      }),
-    ).toEqual(["vscode"]);
+  const macIdentity = {
+    userAgent:
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
+    platform: "MacIntel",
+    maxTouchPoints: 0,
+  };
+
+  it("offers terminal editors alongside VS Code for remote links in a Mac browser", () => {
+    expect(remoteFallbackEditors(macIdentity, false)).toEqual(["ghostty", "neovim", "vscode"]);
+  });
+
+  it("keeps the VS Code fallback for remote links in the Mac desktop app", () => {
+    expect(remoteFallbackEditors(macIdentity, true)).toEqual(["vscode"]);
   });
 });
 
