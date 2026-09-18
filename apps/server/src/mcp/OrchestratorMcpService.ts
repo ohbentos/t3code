@@ -3129,6 +3129,25 @@ const make = Effect.gen(function* () {
           ? null
           : new Set(input.statuses);
       const titleContains = input.titleContains?.toLocaleLowerCase();
+      // Spawned threads are project roots with empty lineage, so only this thread's own
+      // thread_created items link them; inherited rows would claim a fork ancestor's work.
+      // A t3_thread_launch target can sit in another project, so match whichever is listed.
+      const creationItems =
+        input.createdByThisThread === true && parent !== undefined
+          ? (yield* threadManagement
+              .getThreadRecords(parent.thread.id, ["turnItems"], {
+                turnItemTypes: ["thread_created"],
+              })
+              .pipe(Effect.mapError(threadManagementFailure))).turnItems
+          : [];
+      const spawnedThreadIds =
+        input.createdByThisThread === true
+          ? new Set(
+              creationItems.flatMap((item) =>
+                item.type === "thread_created" ? [item.targetThreadId] : [],
+              ),
+            )
+          : null;
       const candidates = projectThreads
         .filter(
           (thread) =>
@@ -3143,7 +3162,8 @@ const make = Effect.gen(function* () {
           (thread) =>
             input.snoozed !== true ||
             (thread.snoozedUntil != null && DateTime.toEpochMillis(thread.snoozedUntil) > nowMs),
-        );
+        )
+        .filter((thread) => spawnedThreadIds === null || spawnedThreadIds.has(thread.id));
       // Shells are the costly part, so build them only for the threads the page needs.
       const shellsOf = (threads: ReadonlyArray<{ readonly id: ThreadId }>) =>
         threads.length === 0

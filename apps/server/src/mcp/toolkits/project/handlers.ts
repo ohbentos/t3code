@@ -14,6 +14,7 @@ import * as Schema from "effect/Schema";
 import { OrchestratorRuntimeModeAboveCeilingError } from "../../../orchestration-v2/Orchestrator.ts";
 import * as ThreadLaunch from "../../../orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadMessageIntake from "../../../orchestration-v2/ThreadMessageIntake.ts";
+import { latestActiveRun } from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as Claims from "../../../orchestration-v2/AttachmentClaims.ts";
 import * as Project from "../../../project/ProjectService.ts";
 import * as ProjectCloneTracker from "../../../project/ProjectCloneTracker.ts";
@@ -113,7 +114,7 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
       Effect.gen(function* () {
         const scope = yield* McpInvocationContext.McpInvocationContext;
         const context = yield* readCaller();
-        const { caller } = context;
+        const { caller, threads } = context;
         // A retry with the same key replays the first launch: the ids derive
         // from the caller and the key, and the launch service replays a
         // command it already accepted.
@@ -304,6 +305,25 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
         );
         const thread = result.projection.thread;
         const run = result.projection.runs.find((run) => run.userMessageId === messageId);
+        if (caller !== undefined) {
+          const callerProjection = yield* threads
+            .getThreadProjection(caller.id)
+            .pipe(Effect.mapError(unavailable));
+          const callerRun = latestActiveRun(callerProjection);
+          if (callerRun !== undefined && callerRun.rootNodeId !== null) {
+            yield* threads
+              .dispatch({
+                type: "thread.created.record",
+                commandId: yield* newCommandId(),
+                parentThreadId: caller.id,
+                parentRunId: callerRun.id,
+                parentNodeId: callerRun.rootNodeId,
+                targetThreadId: thread.id,
+                targetRunId: run?.id ?? null,
+              })
+              .pipe(Effect.mapError(unavailable));
+          }
+        }
         return {
           threadId: thread.id,
           link: McpInvocationContext.threadLinkFor(scope, thread.id, thread.title),
