@@ -351,6 +351,98 @@ it("taskStatus returns task.providerInstanceId rather than the driver kind", asy
   }).pipe(Effect.provide(layer), Effect.runPromise);
 });
 
+it("lists threads with creation filtering across projects and callers using only own creation records", async () => {
+  const foreignProjectId = ProjectId.make("project-created-elsewhere");
+  const inheritedThreadId = ThreadId.make("thread-created-by-ancestor");
+  const createdItem = { type: "thread_created", targetThreadId: childThreadId } as const;
+  const projection = {
+    thread: baseThread({
+      threadId: parentThreadId,
+      title: "Parent",
+      instanceId: parentInstanceId,
+      model: "gpt-5.4",
+    }),
+    turnItems: [createdItem],
+    visibleTurnItems: [{ item: { ...createdItem, targetThreadId: inheritedThreadId } }],
+  } as unknown as OrchestrationV2ThreadProjection;
+  const shells = [inheritedThreadId, childThreadId].map(
+    (threadId) =>
+      ({
+        ...baseThread({
+          threadId,
+          title: "Created thread",
+          instanceId: parentInstanceId,
+          model: "gpt-5.4",
+        }),
+        projectId: foreignProjectId,
+        status: "idle",
+        activityRunStatus: null,
+        latestRunId: null,
+        activeRunId: null,
+        settledAt: null,
+      }) as OrchestrationV2ThreadShell,
+  );
+  const layer = OrchestratorMcpService.layer.pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        Layer.mock(ThreadManagementService.ThreadManagementService)({
+          getThreadRecords: (threadId, _fields, filter) => {
+            expect(threadId).toBe(parentThreadId);
+            return Effect.succeed({
+              ...projection,
+              turnItems: projection.turnItems.filter(
+                (item) => filter?.turnItemTypes?.includes(item.type) ?? true,
+              ),
+            });
+          },
+          listProjectThreads: (input) => {
+            expect(input.projectId).toBe(foreignProjectId);
+            return Effect.succeed(shells);
+          },
+        }),
+        Layer.mock(ProviderRegistry.ProviderRegistry)({ getProviders: Effect.succeed([]) }),
+        Layer.mock(ProjectService.ProjectService)({}),
+        Layer.mock(ScheduledTaskService.ScheduledTaskService)({}),
+        Layer.mock(SecretRequests.SecretRequests)({}),
+        Layer.mock(ProviderAdapterRegistry.ProviderAdapterRegistryV2)({}),
+        NodeCrypto.layer,
+      ),
+    ),
+  );
+
+  await Effect.gen(function* () {
+    const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+    const filtered = yield* service.listThreads(makeScope(), {
+      projectId: foreignProjectId,
+      createdByThisThread: true,
+      limit: 1,
+    });
+    expect(filtered.threads.map((thread) => thread.threadId)).toEqual([childThreadId]);
+    expect(filtered.total).toBe(1);
+    expect(filtered.nextCursor).toBeNull();
+    expect(filtered.currentThreadId).toBe(parentThreadId);
+
+    const clientScope = {
+      ...makeScope(),
+      thread: undefined,
+      client: { sessionId: "external", label: "External", access: "full-access" },
+    } satisfies McpInvocationContext.McpInvocationScope;
+    const clientFiltered = yield* service.listThreads(clientScope, {
+      projectId: foreignProjectId,
+      createdByThisThread: true,
+    });
+    expect(clientFiltered.threads).toEqual([]);
+    expect(clientFiltered.total).toBe(0);
+    expect(clientFiltered.currentThreadId).toBeNull();
+
+    const unfiltered = yield* service.listThreads(clientScope, { projectId: foreignProjectId });
+    expect(unfiltered.threads.map((thread) => thread.threadId)).toEqual([
+      inheritedThreadId,
+      childThreadId,
+    ]);
+  }).pipe(Effect.provide(layer), Effect.runPromise);
+});
+
 it("readThread and sendToThread reach threads in other projects", async () => {
   let parentRuns: ReadonlyArray<unknown> = [
     makeRun({ id: RunId.make("run-parent-live"), ordinal: 1, status: "running" }),

@@ -2302,6 +2302,27 @@ const make = Effect.gen(function* () {
         const nowMs = yield* Clock.currentTimeMillis;
         const statuses = input.statuses === undefined ? null : new Set(input.statuses);
         const titleContains = input.titleContains?.toLocaleLowerCase();
+        // Spawned threads are linked only through the thread_created items this
+        // thread's own runs recorded, since they are created as project roots
+        // with empty lineage; inherited rows would claim a fork ancestor's work.
+        // A t3_thread_launch target can sit in another project, so this set is
+        // matched against whichever project the caller asked to list.
+        const creationItems =
+          input.createdByThisThread === true && parent !== undefined
+            ? (yield* threadManagement
+                .getThreadRecords(parent.thread.id, ["turnItems"], {
+                  turnItemTypes: ["thread_created"],
+                })
+                .pipe(Effect.mapError(threadManagementFailure))).turnItems
+            : [];
+        const spawnedThreadIds =
+          input.createdByThisThread === true
+            ? new Set(
+                creationItems.flatMap((item) =>
+                  item.type === "thread_created" ? [item.targetThreadId] : [],
+                ),
+              )
+            : null;
         const filtered = projectThreads
           .filter(
             (thread) =>
@@ -2318,7 +2339,8 @@ const make = Effect.gen(function* () {
             (thread) =>
               titleContains === undefined ||
               thread.title.toLocaleLowerCase().includes(titleContains),
-          );
+          )
+          .filter((thread) => spawnedThreadIds === null || spawnedThreadIds.has(thread.id));
         const cursor = input.cursor ?? 0;
         const limit = input.limit ?? DEFAULT_THREAD_LIST_LIMIT;
         const page = filtered.slice(cursor, cursor + limit);
