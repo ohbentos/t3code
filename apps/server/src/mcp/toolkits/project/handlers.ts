@@ -5,6 +5,7 @@ import * as ThreadMessageIntake from "../../../orchestration-v2/ThreadMessageInt
 import * as Claims from "../../../orchestration-v2/AttachmentClaims.ts";
 import * as Project from "../../../project/ProjectService.ts";
 import * as Repositories from "../../../sourceControl/SourceControlRepositoryService.ts";
+import { latestActiveRun } from "../../../orchestration-v2/ThreadManagementService.ts";
 import { newCommandId, readCaller, readMutationCaller, unavailable } from "../../threadAccess.ts";
 import { ProjectToolkit } from "./tools.ts";
 
@@ -39,7 +40,7 @@ const mutation = Effect.gen(function* () {
 export const ProjectHandlersLive = ProjectToolkit.toLayer({
   t3_thread_launch: (input) =>
     Effect.gen(function* () {
-      const { caller } = yield* readMutationCaller();
+      const { caller, threads } = yield* readMutationCaller();
       if (caller.runtimeMode !== "full-access" || caller.interactionMode !== "default")
         return yield* new OrchestratorMcpFailure({
           code: "capability_denied",
@@ -83,6 +84,28 @@ export const ProjectHandlersLive = ProjectToolkit.toLayer({
       );
       const thread = result.projection.thread;
       const run = result.projection.runs.find((run) => run.userMessageId === messageId);
+      // The launched thread is a project root with empty lineage, so this record
+      // is the only durable link back to its launcher and the one t3_thread_list
+      // reads for createdByThisThread. It needs the caller's active run, which a
+      // launch does not otherwise require.
+      const callerProjection = yield* threads
+        .getThreadProjection(caller.id)
+        .pipe(Effect.mapError(unavailable));
+      const callerRun = latestActiveRun(callerProjection);
+      if (callerRun !== undefined && callerRun.rootNodeId !== null) {
+        const recordCommandId = yield* newCommandId();
+        yield* threads
+          .dispatch({
+            type: "thread.created.record",
+            commandId: recordCommandId,
+            parentThreadId: caller.id,
+            parentRunId: callerRun.id,
+            parentNodeId: callerRun.rootNodeId,
+            targetThreadId: thread.id,
+            targetRunId: run?.id ?? null,
+          })
+          .pipe(Effect.mapError(unavailable));
+      }
       return {
         threadId: thread.id,
         projectId: thread.projectId,
