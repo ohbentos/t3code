@@ -808,14 +808,18 @@ const make = Effect.gen(function* () {
       )
       .pipe(Effect.mapError(threadManagementFailure));
 
-  const loadScopedThread = (scope: McpInvocationScope, threadId: ThreadId) =>
+  const loadScopedThread = (
+    scope: McpInvocationScope,
+    threadId: ThreadId,
+    projectId?: OrchestrationV2ThreadProjection["thread"]["projectId"],
+  ) =>
     Effect.gen(function* () {
       yield* requireCapability(scope);
       const parent = yield* loadProjection(scope.threadId);
       const target =
         threadId === scope.threadId
           ? parent
-          : yield* loadProjectThread(parent.thread.projectId, threadId);
+          : yield* loadProjectThread(projectId ?? parent.thread.projectId, threadId);
       return { parent, target } as const;
     });
 
@@ -837,7 +841,11 @@ const make = Effect.gen(function* () {
     return ids;
   };
 
-  const loadReadableThread = (scope: McpInvocationScope, threadId: ThreadId) =>
+  const loadReadableThread = (
+    scope: McpInvocationScope,
+    threadId: ThreadId,
+    projectId?: OrchestrationV2ThreadProjection["thread"]["projectId"],
+  ) =>
     Effect.gen(function* () {
       yield* requireCapability(scope);
       const parent = yield* loadProjection(scope.threadId);
@@ -847,7 +855,7 @@ const make = Effect.gen(function* () {
           .pipe(Effect.mapError(threadManagementFailure));
       if (threadId === scope.threadId) return { parent, target: yield* loadTarget() } as const;
       const target = yield* threadManagement
-        .getProjectThreadRecords({ projectId: parent.thread.projectId, threadId }, [
+        .getProjectThreadRecords({ projectId: projectId ?? parent.thread.projectId, threadId }, [
           "runs",
           "runtimeRequests",
           "contextTransfers",
@@ -1704,9 +1712,10 @@ const make = Effect.gen(function* () {
       Effect.gen(function* () {
         yield* requireCapability(scope);
         const parent = yield* loadProjection(scope.threadId);
+        const listedProjectId = input.projectId ?? parent.thread.projectId;
         const projectThreads = yield* threadManagement
           .listProjectThreads({
-            projectId: parent.thread.projectId,
+            projectId: listedProjectId,
             includeSubagents: input.includeSubagents !== false,
           })
           .pipe(
@@ -1716,6 +1725,19 @@ const make = Effect.gen(function* () {
           );
         const statuses = input.statuses === undefined ? null : new Set(input.statuses);
         const titleContains = input.titleContains?.toLocaleLowerCase();
+        // Spawned threads are linked only through the thread_created items this
+        // thread's own runs recorded, since they are created as project roots
+        // with empty lineage; inherited rows would claim a fork ancestor's work.
+        // A t3_thread_launch target can sit in another project, so this set is
+        // matched against whichever project the caller asked to list.
+        const spawnedThreadIds =
+          input.createdByThisThread === true
+            ? new Set(
+                parent.turnItems.flatMap((item) =>
+                  item.type === "thread_created" ? [item.targetThreadId] : [],
+                ),
+              )
+            : null;
         const filtered = projectThreads
           .filter(
             (thread) =>
@@ -1725,13 +1747,14 @@ const make = Effect.gen(function* () {
             (thread) =>
               titleContains === undefined ||
               thread.title.toLocaleLowerCase().includes(titleContains),
-          );
+          )
+          .filter((thread) => spawnedThreadIds === null || spawnedThreadIds.has(thread.id));
         const cursor = input.cursor ?? 0;
         const limit = input.limit ?? DEFAULT_THREAD_LIST_LIMIT;
         const page = filtered.slice(cursor, cursor + limit);
         const nextCursor = cursor + page.length < filtered.length ? cursor + page.length : null;
         return {
-          projectId: parent.thread.projectId,
+          projectId: listedProjectId,
           currentThreadId: scope.threadId,
           threads: page.map(listItemFromShell),
           nextCursor,
@@ -1740,7 +1763,11 @@ const make = Effect.gen(function* () {
       }),
     readThread: (scope, input) =>
       Effect.gen(function* () {
-        const { parent, target } = yield* loadReadableThread(scope, input.threadId);
+        const { parent, target } = yield* loadReadableThread(
+          scope,
+          input.threadId,
+          input.projectId,
+        );
         const view = input.view ?? "messages";
         const afterPosition = input.afterPosition ?? -1;
         const limit = input.limit ?? DEFAULT_THREAD_READ_LIMIT;
@@ -1821,7 +1848,7 @@ const make = Effect.gen(function* () {
       }),
     sendToThread: (scope, input) =>
       Effect.gen(function* () {
-        const { parent, target } = yield* loadScopedThread(scope, input.threadId);
+        const { parent, target } = yield* loadScopedThread(scope, input.threadId, input.projectId);
         yield* resolveRuntimeMode(parent.thread.runtimeMode, target.thread.runtimeMode);
         yield* resolveInteractionMode(parent.thread.interactionMode, target.thread.interactionMode);
 
@@ -1834,7 +1861,7 @@ const make = Effect.gen(function* () {
         });
         const result = yield* threadManagement
           .sendToThread({
-            projectId: parent.thread.projectId,
+            projectId: target.thread.projectId,
             commandId: stableCommandId({
               scope,
               requestKey: key,
@@ -1869,10 +1896,10 @@ const make = Effect.gen(function* () {
       }),
     waitForThread: (scope, input) =>
       Effect.gen(function* () {
-        const { parent } = yield* loadScopedThread(scope, input.threadId);
+        const { target } = yield* loadScopedThread(scope, input.threadId, input.projectId);
         const result = yield* threadManagement
           .waitForThread({
-            projectId: parent.thread.projectId,
+            projectId: target.thread.projectId,
             threadId: input.threadId,
             ...(input.runId === undefined ? {} : { runId: input.runId }),
             timeoutMs: Math.min(
@@ -1890,11 +1917,11 @@ const make = Effect.gen(function* () {
       }),
     interruptThread: (scope, input) =>
       Effect.gen(function* () {
-        const { parent } = yield* loadScopedThread(scope, input.threadId);
+        const { target } = yield* loadScopedThread(scope, input.threadId, input.projectId);
         const key = yield* requestKey(input.clientRequestId);
         const result = yield* threadManagement
           .interruptThread({
-            projectId: parent.thread.projectId,
+            projectId: target.thread.projectId,
             commandId: stableCommandId({
               scope,
               requestKey: key,
