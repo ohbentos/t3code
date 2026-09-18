@@ -13,6 +13,7 @@ import { useAtomValue } from "@effect/atom-react";
 import { isDesktopLocalConnectionTarget } from "~/connection/desktopLocal";
 import { isLoopbackHostname } from "~/environments/primary/target";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
+import { isMacPlatform } from "~/lib/utils";
 import { environmentPresentations } from "~/state/presentation";
 
 export interface RemoteOpenHost {
@@ -144,7 +145,13 @@ export function useRemoteOpenState(environmentId: EnvironmentId | null): RemoteO
   return useRemoteOpenResolution(environmentId).state;
 }
 
-const REMOTE_FALLBACK_EDITORS: ReadonlyArray<EditorId> = ["vscode"];
+const remoteFallbackEditors = (): ReadonlyArray<EditorId> =>
+  typeof window !== "undefined" &&
+  typeof navigator !== "undefined" &&
+  window.desktopBridge === undefined &&
+  isMacPlatform(navigator.platform)
+    ? ["ghostty", "neovim", "vscode"]
+    : ["vscode"];
 
 // Probed once per page: installed editors rarely change, and the probe spawns processes.
 const remoteCapableEditorsAtom = Atom.make((get): ReadonlyArray<EditorId> => {
@@ -156,7 +163,7 @@ const remoteCapableEditorsAtom = Atom.make((get): ReadonlyArray<EditorId> => {
     },
     () => undefined,
   );
-  return REMOTE_FALLBACK_EDITORS;
+  return remoteFallbackEditors();
 }).pipe(Atom.keepAlive, Atom.withLabel("remote-capable-editors"));
 
 export function useRemoteCapableEditors(): ReadonlyArray<EditorId> {
