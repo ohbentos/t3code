@@ -4,6 +4,7 @@ import {
   ProjectId,
   ProviderInstanceId,
   ThreadId,
+  type OrchestrationV2ThreadProjection,
   type OrchestrationV2ThreadShell,
   type Project as ProjectRecord,
 } from "@t3tools/contracts";
@@ -64,6 +65,8 @@ it.effect("attributes a launched thread's first message to the calling thread", 
       }),
       Layer.mock(ThreadManagement.ThreadManagementService)({
         getThreadShell: () => Effect.succeed(caller),
+        getThreadProjection: () =>
+          Effect.succeed({ runs: [] } as unknown as OrchestrationV2ThreadProjection),
       }),
       Layer.mock(ThreadLaunch.ThreadLaunchService)({
         launch: (input) => {
@@ -136,6 +139,8 @@ it.effect("launches a scratch thread into the Scratch project", () =>
       }),
       Layer.mock(ThreadManagement.ThreadManagementService)({
         getThreadShell: () => Effect.succeed(caller),
+        getThreadProjection: () =>
+          Effect.succeed({ runs: [] } as unknown as OrchestrationV2ThreadProjection),
       }),
       Layer.mock(ThreadLaunch.ThreadLaunchService)({
         launch: (input) => {
