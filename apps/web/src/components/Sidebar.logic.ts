@@ -541,6 +541,12 @@ export function resolveSidebarRowThreadId(
   return thread?.id ?? threadId;
 }
 
+export function filterSidebarSubagentThreads<T extends Pick<SidebarThreadSummary, "lineage">>(
+  threads: readonly T[],
+): T[] {
+  return threads.filter((thread) => !isSidebarSubagentThread(thread));
+}
+
 export function filterSidebarV2VisibleThreads<
   T extends Pick<SidebarThreadSummary, "archivedAt" | "lineage"> & {
     environmentId: string;
