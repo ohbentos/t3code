@@ -193,6 +193,7 @@ import {
   resolveProjectStatusIndicator,
   resolveThreadLastVisitedAt,
   resolveThreadStatusPill,
+  filterSidebarSubagentThreads,
   orderItemsByPreferredIds,
   shouldClearThreadSelectionOnMouseDown,
   sortProjectsForSidebar,
@@ -1112,7 +1113,10 @@ function useProjectThreads(project: SidebarProjectSnapshot) {
   const threadSortOrder = useClientSettings<SidebarThreadSortOrder>(
     (settings) => settings.sidebarThreadSortOrder,
   );
-  const sidebarThreads = useThreadShellsForProjectRefs(project.memberProjectRefs);
+  const projectThreads = useThreadShellsForProjectRefs(project.memberProjectRefs);
+  // Child agents stay addressable for project operations, but belong in the
+  // parent thread's Lineage rather than the legacy history list.
+  const sidebarThreads = filterSidebarSubagentThreads(projectThreads);
   const threadLastVisitedAts = useUiStateStore(
     useShallow((state) =>
       sidebarThreads.map(
@@ -1124,7 +1128,7 @@ function useProjectThreads(project: SidebarProjectSnapshot) {
     ),
   );
   const sidebarThreadByKey = new Map(
-    sidebarThreads.map(
+    projectThreads.map(
       (thread) =>
         [scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)), thread] as const,
     ),
@@ -1138,7 +1142,7 @@ function useProjectThreads(project: SidebarProjectSnapshot) {
   const memberThreadCountByPhysicalKey = new Map<string, number>(
     project.memberProjects.map((member) => [member.physicalProjectKey, 0] as const),
   );
-  for (const thread of sidebarThreads) {
+  for (const thread of projectThreads) {
     const member = memberProjectByScopedKey.get(
       scopedProjectKey(scopeProjectRef(thread.environmentId, thread.projectId)),
     );
@@ -1169,7 +1173,7 @@ function useProjectThreads(project: SidebarProjectSnapshot) {
     scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
   );
   return {
-    sidebarThreads,
+    projectThreads,
     sidebarThreadByKey,
     memberProjectByScopedKey,
     memberThreadCountByPhysicalKey,
@@ -1330,7 +1334,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
   });
   const openPrLink = useOpenPrLink();
   const {
-    sidebarThreads,
+    projectThreads,
     sidebarThreadByKey,
     memberProjectByScopedKey,
     memberThreadCountByPhysicalKey,
@@ -1457,7 +1461,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     const draftStore = useComposerDraftStore.getState();
     releaseProjectDraftUploads(
       memberProjectRef,
-      sidebarThreads
+      projectThreads
         .filter(
           (thread) =>
             thread.environmentId === member.environmentId && thread.projectId === member.id,
@@ -3098,7 +3102,7 @@ function useSortedLegacySidebarProjects(input: {
     projectPhysicalKeyByScopedRef,
     sidebarProjectSortOrder,
   } = input;
-  const sidebarThreads = useThreadShells();
+  const sidebarThreads = filterSidebarSubagentThreads(useThreadShells());
   const sidebarProjectByKey = new Map(
     sidebarProjects.map((project) => [project.projectKey, project] as const),
   );
@@ -3150,10 +3154,11 @@ function useLegacySidebarThreads(input: {
     sidebarThreadPreviewCount,
     expandedThreadListsByProject,
   } = input;
-  const sidebarThreads = useThreadShells();
+  const allSidebarThreads = useThreadShells();
+  const sidebarThreads = filterSidebarSubagentThreads(allSidebarThreads);
   const projectExpandedById = useUiStateStore((store) => store.projectExpandedById);
   const sidebarThreadByKey = new Map(
-    sidebarThreads.map(
+    allSidebarThreads.map(
       (thread) =>
         [scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)), thread] as const,
     ),
