@@ -172,7 +172,8 @@ const failStorage = (cause: unknown) =>
 /**
  * The base URL a peer is reached at, normalised to its origin. The pairing
  * code and then the link's token travel to it, so plain http is accepted only
- * where the network already encrypts: this machine, or a Tailscale address.
+ * where the network already encrypts: this machine, a Tailscale address, or a
+ * `.internal` name, which this fork's Headscale tailnet serves through MagicDNS.
  */
 const peerOrigin = (url: string) => {
   const parsed = URL.parse(url);
@@ -188,7 +189,8 @@ const peerOrigin = (url: string) => {
   if (
     parsed.protocol === "http:" &&
     !isLocalLoopbackHost(parsed.hostname) &&
-    !isTailnetHost(parsed.hostname)
+    !isTailnetHost(parsed.hostname) &&
+    !parsed.hostname.endsWith(".internal")
   ) {
     return Effect.fail(
       new PeerLinkError({
